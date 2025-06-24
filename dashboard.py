@@ -183,14 +183,19 @@ def load_data(file_path=None):
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip().str.upper()
         
-        df['MES_ANO'] = df['DATA_ABORDAGEM'].dt.to_period('M')
+        # CORREÇÃO 1: Criar campo para evolução DIÁRIA em vez de mensal
         df['DIA'] = df['DATA_ABORDAGEM'].dt.date
+        df['MES_ANO'] = df['DATA_ABORDAGEM'].dt.to_period('M')
         
-        # CLASSIFICAÇÃO DE RESPOSTAS
-        retornos_positivos = ['NEGATIVO', 'RESPONDEU E MARCOU CALL']
-        df['TEVE_RETORNO'] = df['RESULTADO'].isin(retornos_positivos)
+        # CORREÇÃO 2: Lógica corrigida para classificação de respostas
+        # Definir corretamente quais são as respostas positivas/efetivas
+        respostas_positivas = ['RESPONDEU E MARCOU CALL', 'POSITIVO', 'INTERESSADO']
+        respostas_efetivas = ['RESPONDEU E MARCOU CALL', 'NEGATIVO', 'POSITIVO', 'INTERESSADO']
+        sem_resposta = ['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU']
         
-        respostas_efetivas = ['NEGATIVO', 'RESPONDEU E MARCOU CALL']
+        # Criar flags corretas
+        df['TEVE_RETORNO'] = ~df['RESULTADO'].isin(sem_resposta)
+        df['RESPOSTA_POSITIVA'] = df['RESULTADO'].isin(respostas_positivas)
         df['RESPOSTA_EFETIVA'] = df['RESULTADO'].isin(respostas_efetivas)
         
         return df
@@ -211,40 +216,72 @@ def calculate_kpis(df):
     else:
         kpis['leads_dia'] = 0
     
-    # LEADS POR MÊS
+    # CORREÇÃO: EVOLUÇÃO DIÁRIA em vez de mensal
     if not df.empty:
-        kpis['leads_por_mes'] = df.groupby('MES_ANO').size().reset_index(name='leads')
-        kpis['leads_por_mes']['mes_str'] = kpis['leads_por_mes']['MES_ANO'].astype(str)
+        leads_por_dia = df.groupby('DIA').size().reset_index(name='leads')
+        leads_por_dia['dia_formatado'] = pd.to_datetime(leads_por_dia['DIA']).dt.strftime('%d/%m')
+        # Ordenar por data para garantir sequência correta
+        leads_por_dia = leads_por_dia.sort_values('DIA')
+        kpis['leads_por_dia'] = leads_por_dia
     else:
-        kpis['leads_por_mes'] = pd.DataFrame()
+        kpis['leads_por_dia'] = pd.DataFrame()
     
-    # ANÁLISE DE CANAIS
-    if len(df) > 0 and 'CANAL' in df.columns:
-        canal_stats = df.groupby('CANAL').agg({
-            'TEVE_RETORNO': ['count', 'sum'],
-            'RESPOSTA_EFETIVA': 'sum'
-        }).round(2)
+    # CORREÇÃO DEFINITIVA: Análise de canais simplificada e robusta
+    if len(df) > 0 and 'CANAL' in df.columns and 'RESULTADO' in df.columns:
+        # Método mais direto - contar por canal
+        canal_counts = df.groupby('CANAL').size().reset_index(name='total_leads')
         
-        canal_stats.columns = ['total_leads', 'retornos', 'respostas_efetivas']
-        canal_stats['taxa_retorno'] = (canal_stats['retornos'] / canal_stats['total_leads'] * 100).round(1)
-        canal_stats['taxa_resposta_efetiva'] = (canal_stats['respostas_efetivas'] / canal_stats['total_leads'] * 100).round(1)
-        canal_stats = canal_stats.reset_index()
-        kpis['canal_performance'] = canal_stats
+        # Para cada canal, calcular estatísticas
+        canal_stats_list = []
+        
+        for canal in canal_counts['CANAL'].unique():
+            canal_df = df[df['CANAL'] == canal]
+            
+            total = len(canal_df)
+            
+            # Contar tipos de resposta diretamente
+            sem_resposta = len(canal_df[canal_df['RESULTADO'].isin(['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU'])])
+            com_retorno = total - sem_resposta
+            
+            # Respostas específicas
+            negativo = len(canal_df[canal_df['RESULTADO'] == 'NEGATIVO'])
+            positivo = len(canal_df[canal_df['RESULTADO'].isin(['POSITIVO', 'INTERESSADO', 'RESPONDEU E MARCOU CALL'])])
+            
+            # Calcular taxas
+            taxa_retorno = (com_retorno / total * 100) if total > 0 else 0
+            taxa_positiva = (positivo / total * 100) if total > 0 else 0
+            
+            canal_stats_list.append({
+                'CANAL': canal,
+                'total_leads': total,
+                'com_retorno': com_retorno,
+                'sem_resposta': sem_resposta,
+                'respostas_negativas': negativo,
+                'respostas_positivas': positivo,
+                'taxa_retorno': round(taxa_retorno, 1),
+                'taxa_positiva': round(taxa_positiva, 1)
+            })
+        
+        kpis['canal_performance'] = pd.DataFrame(canal_stats_list)
     else:
         kpis['canal_performance'] = pd.DataFrame()
     
     # ANÁLISE DE SEGMENTOS SEM RESPOSTA
     if 'SEGMENTO' in df.columns and 'RESULTADO' in df.columns:
-        sem_resposta = df[df['RESULTADO'].isin(['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU'])]
-        kpis['sem_resposta_por_segmento'] = sem_resposta.groupby('SEGMENTO').size().reset_index(name='quantidade')
+        sem_resposta_lista = ['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU']
+        sem_resposta = df[df['RESULTADO'].isin(sem_resposta_lista)]
+        if not sem_resposta.empty:
+            kpis['sem_resposta_por_segmento'] = sem_resposta.groupby('SEGMENTO').size().reset_index(name='quantidade')
+        else:
+            kpis['sem_resposta_por_segmento'] = pd.DataFrame()
     else:
         kpis['sem_resposta_por_segmento'] = pd.DataFrame()
     
     # ESTATÍSTICAS GERAIS
     total_leads = len(df)
     if 'RESULTADO' in df.columns:
-        sem_resposta = df[df['RESULTADO'].isin(['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU'])]
-        leads_sem_resposta = len(sem_resposta)
+        sem_resposta_lista = ['NÃO RESPONDEU', 'VISUALIZOU E NÃO RESPONDEU']
+        leads_sem_resposta = len(df[df['RESULTADO'].isin(sem_resposta_lista)])
         kpis['total_sem_resposta'] = leads_sem_resposta
         kpis['percentual_sem_resposta'] = round(leads_sem_resposta / total_leads * 100, 1) if total_leads > 0 else 0
     else:
@@ -258,7 +295,9 @@ def calculate_kpis(df):
         '#c5a2f2',  # Roxo claro
         '#d5c5e3',  # Roxo muito claro
         '#f6f2fa',  # Quase branco
-        '#72559a'   # Repetir primeira cor se necessário
+        '#e74c3c',  # Vermelho para contraste
+        '#3498db',  # Azul para contraste
+        '#2ecc71'   # Verde para contraste
     ]
     kpis['cores_modernas'] = cores_modernas
     
@@ -271,37 +310,33 @@ def create_charts(kpis):
     """
     charts = {}
     
-    # GRÁFICO 1: Evolução mensal de leads
-    if not kpis['leads_por_mes'].empty:
-        try:
-            kpis['leads_por_mes']['periodo_formatado'] = kpis['leads_por_mes']['MES_ANO'].dt.strftime('%b/%Y')
-        except:
-            kpis['leads_por_mes']['periodo_formatado'] = kpis['leads_por_mes']['MES_ANO'].astype(str)
-        
-        fig_monthly = px.line(
-            kpis['leads_por_mes'], 
-            x='periodo_formatado', 
+    # GRÁFICO 1: Evolução DIÁRIA de leads (CORRIGIDO)
+    if not kpis['leads_por_dia'].empty:
+        fig_daily = px.line(
+            kpis['leads_por_dia'], 
+            x='dia_formatado', 
             y='leads',
-            title='📈 Evolução Mensal de Leads',
+            title='📈 Evolução Diária de Leads',
             markers=True
         )
         
-        fig_monthly.update_layout(
+        fig_daily.update_layout(
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font_family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
             title_font_size=20,
             title_font_color='#1f2937',
             title_x=0.02,
-            xaxis_title="",
-            yaxis_title="Leads",
+            xaxis_title="Dia",
+            yaxis_title="Quantidade de Leads",
             showlegend=False,
             margin=dict(l=40, r=40, t=60, b=40),
             xaxis=dict(
                 showgrid=False,
                 showline=False,
                 zeroline=False,
-                tickfont=dict(color='#6b7280', size=12)
+                tickfont=dict(color='#6b7280', size=12),
+                tickangle=45
             ),
             yaxis=dict(
                 showgrid=True,
@@ -312,14 +347,14 @@ def create_charts(kpis):
             )
         )
         
-        fig_monthly.update_traces(
+        fig_daily.update_traces(
             line=dict(color='#72559a', width=3),
             marker=dict(color='#72559a', size=8, line=dict(color='white', width=2)),
-            hovertemplate='<b>%{x}</b><br>Leads: %{y}<extra></extra>'
+            hovertemplate='<b>Dia %{x}</b><br>Leads: %{y}<extra></extra>'
         )
-        charts['monthly_evolution'] = fig_monthly
+        charts['daily_evolution'] = fig_daily
     
-    # GRÁFICO 2: Performance por canal
+    # GRÁFICO 2: Performance por canal (CORRIGIDO)
     if not kpis['canal_performance'].empty:
         fig_channel = go.Figure(data=[go.Pie(
             labels=kpis['canal_performance']['CANAL'],
@@ -331,7 +366,8 @@ def create_charts(kpis):
             ),
             textinfo='label+percent',
             textfont=dict(size=14, color='#72559a'),
-            hovertemplate='<b>%{label}</b><br>Taxa: %{value}%<extra></extra>'
+            hovertemplate='<b>%{label}</b><br>Taxa de Retorno: %{value}%<br>Total: %{customdata} leads<extra></extra>',
+            customdata=kpis['canal_performance']['total_leads']
         )])
         
         fig_channel.update_layout(
@@ -419,6 +455,17 @@ def main():
         if df is None:
             return
         
+        # DEBUG: Mostrar informações sobre os dados carregados
+        with st.expander("🔍 Debug - Informações dos Dados", expanded=False):
+            st.write(f"**Total de registros:** {len(df)}")
+            st.write(f"**Colunas:** {list(df.columns)}")
+            if 'RESULTADO' in df.columns:
+                st.write("**Valores únicos em RESULTADO:**")
+                st.write(df['RESULTADO'].value_counts())
+            if 'CANAL' in df.columns:
+                st.write("**Valores únicos em CANAL:**")
+                st.write(df['CANAL'].value_counts())
+        
         # Calcula KPIs
         kpis = calculate_kpis(df)
         
@@ -469,8 +516,8 @@ def main():
         col_left, col_right = st.columns([2, 1])
         
         with col_left:
-            if 'monthly_evolution' in charts:
-                st.plotly_chart(charts['monthly_evolution'], use_container_width=True)
+            if 'daily_evolution' in charts:
+                st.plotly_chart(charts['daily_evolution'], use_container_width=True)
         
         with col_right:
             if 'channel_performance' in charts:
@@ -480,33 +527,79 @@ def main():
         if 'segments_no_response' in charts:
             st.plotly_chart(charts['segments_no_response'], use_container_width=True)
         
-        # SEÇÃO 3: TABELA DETALHADA
+        # SEÇÃO 3: TABELA DETALHADA (CORRIGIDA)
         st.markdown('<h2 class="section-title">📋 Detalhamento por Canal</h2>', unsafe_allow_html=True)
         
         if not kpis['canal_performance'].empty:
+            # DEBUG: Mostrar dados brutos do canal_performance
+            with st.expander("🔍 Debug - Dados do Canal Performance", expanded=False):
+                st.write("**Dados brutos canal_performance:**")
+                st.dataframe(kpis['canal_performance'])
+            
             # Criar tabela formatada
             canal_df = kpis['canal_performance'].copy()
-            canal_df.columns = ['Canal', 'Total Leads', 'Retornos', 'Respostas Efetivas', 'Taxa Retorno (%)', 'Taxa Resposta (%)']
             
-            # Formatação de valores
-            canal_df['Taxa Retorno (%)'] = canal_df['Taxa Retorno (%)'].apply(lambda x: f"{x:.1f}%")
-            canal_df['Taxa Resposta (%)'] = canal_df['Taxa Resposta (%)'].apply(lambda x: f"{x:.1f}%")
+            # Renomear colunas para exibição
+            display_df = pd.DataFrame({
+                'Canal': canal_df['CANAL'],
+                'Total Leads': canal_df['total_leads'],
+                'Com Retorno': canal_df['com_retorno'],
+                'Sem Resposta': canal_df['sem_resposta'],
+                'Resp. Negativas': canal_df['respostas_negativas'],
+                'Resp. Positivas': canal_df['respostas_positivas'],
+                'Taxa Retorno': canal_df['taxa_retorno'].apply(lambda x: f"{x:.1f}%"),
+                'Taxa Positiva': canal_df['taxa_positiva'].apply(lambda x: f"{x:.1f}%")
+            })
             
             st.dataframe(
-                canal_df, 
+                display_df, 
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
                     "Canal": st.column_config.TextColumn("Canal", width="medium"),
-                    "Total Leads": st.column_config.NumberColumn("Total Leads", format="%d"),
-                    "Retornos": st.column_config.NumberColumn("Retornos", format="%d"),
-                    "Respostas Efetivas": st.column_config.NumberColumn("Respostas Efetivas", format="%d"),
-                    "Taxa Retorno (%)": st.column_config.TextColumn("Taxa Retorno"),
-                    "Taxa Resposta (%)": st.column_config.TextColumn("Taxa Resposta")
+                    "Total Leads": st.column_config.NumberColumn("Total Leads"),
+                    "Com Retorno": st.column_config.NumberColumn("Com Retorno"),
+                    "Sem Resposta": st.column_config.NumberColumn("Sem Resposta"),
+                    "Resp. Negativas": st.column_config.NumberColumn("Resp. Negativas"),
+                    "Resp. Positivas": st.column_config.NumberColumn("Resp. Positivas"),
+                    "Taxa Retorno": st.column_config.TextColumn("Taxa Retorno"),
+                    "Taxa Positiva": st.column_config.TextColumn("Taxa Positiva")
                 }
             )
+            
+            # Estatísticas resumo
+            st.markdown("### 📊 Resumo Geral")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total de Canais", len(canal_df))
+            with col2:
+                st.metric("Média Taxa Retorno", f"{canal_df['taxa_retorno'].mean():.1f}%")
+            with col3:
+                st.metric("Média Taxa Positiva", f"{canal_df['taxa_positiva'].mean():.1f}%")
+            with col4:
+                melhor_canal = canal_df.loc[canal_df['taxa_retorno'].idxmax(), 'CANAL'] if not canal_df.empty else "N/A"
+                st.metric("Melhor Canal", melhor_canal)
+                
         else:
             st.warning("⚠️ Nenhum dado disponível para exibir o detalhamento por canal.")
+            st.info("**Possíveis causas:**")
+            st.write("- Coluna 'CANAL' não existe nos dados")
+            st.write("- Coluna 'RESULTADO' não existe nos dados") 
+            st.write("- Dados vazios ou com formato incorreto")
+            
+            # Mostrar informações de debug
+            if 'CANAL' in df.columns:
+                st.write("✅ Coluna CANAL encontrada")
+                st.write(f"**Valores únicos em CANAL:** {df['CANAL'].unique()}")
+            else:
+                st.write("❌ Coluna CANAL não encontrada")
+                
+            if 'RESULTADO' in df.columns:
+                st.write("✅ Coluna RESULTADO encontrada")
+                st.write(f"**Valores únicos em RESULTADO:** {df['RESULTADO'].unique()}")
+            else:
+                st.write("❌ Coluna RESULTADO não encontrada")
         
         # SEÇÃO 4: INSIGHTS AUTOMÁTICOS
         st.markdown('<h2 class="section-title">💡 Insights Automáticos</h2>', unsafe_allow_html=True)
@@ -532,6 +625,8 @@ def main():
                 
                 **📊 Recomendação:** Continue focando no canal {best_channel} para maximizar resultados.
                 """)
+        else:
+            st.warning("⚠️ Não foi possível gerar insights. Verifique os dados de canal.")
         
         # BOTÃO DE ATUALIZAR FIXO NO CANTO INFERIOR DIREITO
         st.markdown("""
@@ -566,6 +661,7 @@ def main():
     except Exception as e:
         st.error(f"❌ **Erro ao carregar o arquivo:** {str(e)}")
         st.markdown("**Detalhes do erro podem ajudar na identificação do problema.**")
+        st.write("Erro detalhado:", str(e))
 
 if __name__ == "__main__":
     main()
