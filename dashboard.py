@@ -170,7 +170,7 @@ def load_data(file_path=None):
     """
     try:
         if file_path is None:
-            file_path = r"C:\Users\elnat\OneDrive\Documentos\Dev\Rankrup\Rankrup\dashboard_rank.xlsx"
+            file_path = r"dashboard_rank.xlsx"
         
         df = pd.read_excel(file_path)
         
