@@ -414,7 +414,7 @@ def create_charts(kpis):
         )])
         
         fig_segments.update_layout(
-            title='🎯 Lead's que não responderam',
+            title='🎯 Lead\'s que não responderam',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font_family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
