@@ -354,7 +354,7 @@ def create_charts(kpis):
         )
         charts['daily_evolution'] = fig_daily
     
-    # GRÁFICO 2: Performance por canal (CORRIGIDO)
+    # GRÁFICO 2: Lead's que me responderam (NOME ALTERADO)
     if not kpis['canal_performance'].empty:
         fig_channel = go.Figure(data=[go.Pie(
             labels=kpis['canal_performance']['CANAL'],
@@ -371,7 +371,7 @@ def create_charts(kpis):
         )])
         
         fig_channel.update_layout(
-            title='📊 Taxa de Retorno por Canal',
+            title='📊 Lead\'s que me responderam',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font_family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
@@ -398,7 +398,7 @@ def create_charts(kpis):
         )
         charts['channel_performance'] = fig_channel
     
-    # GRÁFICO 3: Segmentos sem resposta
+    # GRÁFICO 3: Lead que não responderam (NOME ALTERADO)
     if not kpis['sem_resposta_por_segmento'].empty:
         fig_segments = go.Figure(data=[go.Pie(
             labels=kpis['sem_resposta_por_segmento']['SEGMENTO'],
@@ -414,7 +414,7 @@ def create_charts(kpis):
         )])
         
         fig_segments.update_layout(
-            title='🎯 Distribuição de Não Respostas por Segmento',
+            title='🎯 Lead que não responderam',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font_family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
@@ -454,17 +454,6 @@ def main():
         
         if df is None:
             return
-        
-        # DEBUG: Mostrar informações sobre os dados carregados
-        with st.expander("🔍 Debug - Informações dos Dados", expanded=False):
-            st.write(f"**Total de registros:** {len(df)}")
-            st.write(f"**Colunas:** {list(df.columns)}")
-            if 'RESULTADO' in df.columns:
-                st.write("**Valores únicos em RESULTADO:**")
-                st.write(df['RESULTADO'].value_counts())
-            if 'CANAL' in df.columns:
-                st.write("**Valores únicos em CANAL:**")
-                st.write(df['CANAL'].value_counts())
         
         # Calcula KPIs
         kpis = calculate_kpis(df)
@@ -527,81 +516,7 @@ def main():
         if 'segments_no_response' in charts:
             st.plotly_chart(charts['segments_no_response'], use_container_width=True)
         
-        # SEÇÃO 3: TABELA DETALHADA (CORRIGIDA)
-        st.markdown('<h2 class="section-title">📋 Detalhamento por Canal</h2>', unsafe_allow_html=True)
-        
-        if not kpis['canal_performance'].empty:
-            # DEBUG: Mostrar dados brutos do canal_performance
-            with st.expander("🔍 Debug - Dados do Canal Performance", expanded=False):
-                st.write("**Dados brutos canal_performance:**")
-                st.dataframe(kpis['canal_performance'])
-            
-            # Criar tabela formatada
-            canal_df = kpis['canal_performance'].copy()
-            
-            # Renomear colunas para exibição
-            display_df = pd.DataFrame({
-                'Canal': canal_df['CANAL'],
-                'Total Leads': canal_df['total_leads'],
-                'Com Retorno': canal_df['com_retorno'],
-                'Sem Resposta': canal_df['sem_resposta'],
-                'Resp. Negativas': canal_df['respostas_negativas'],
-                'Resp. Positivas': canal_df['respostas_positivas'],
-                'Taxa Retorno': canal_df['taxa_retorno'].apply(lambda x: f"{x:.1f}%"),
-                'Taxa Positiva': canal_df['taxa_positiva'].apply(lambda x: f"{x:.1f}%")
-            })
-            
-            st.dataframe(
-                display_df, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "Canal": st.column_config.TextColumn("Canal", width="medium"),
-                    "Total Leads": st.column_config.NumberColumn("Total Leads"),
-                    "Com Retorno": st.column_config.NumberColumn("Com Retorno"),
-                    "Sem Resposta": st.column_config.NumberColumn("Sem Resposta"),
-                    "Resp. Negativas": st.column_config.NumberColumn("Resp. Negativas"),
-                    "Resp. Positivas": st.column_config.NumberColumn("Resp. Positivas"),
-                    "Taxa Retorno": st.column_config.TextColumn("Taxa Retorno"),
-                    "Taxa Positiva": st.column_config.TextColumn("Taxa Positiva")
-                }
-            )
-            
-            # Estatísticas resumo
-            st.markdown("### 📊 Resumo Geral")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total de Canais", len(canal_df))
-            with col2:
-                st.metric("Média Taxa Retorno", f"{canal_df['taxa_retorno'].mean():.1f}%")
-            with col3:
-                st.metric("Média Taxa Positiva", f"{canal_df['taxa_positiva'].mean():.1f}%")
-            with col4:
-                melhor_canal = canal_df.loc[canal_df['taxa_retorno'].idxmax(), 'CANAL'] if not canal_df.empty else "N/A"
-                st.metric("Melhor Canal", melhor_canal)
-                
-        else:
-            st.warning("⚠️ Nenhum dado disponível para exibir o detalhamento por canal.")
-            st.info("**Possíveis causas:**")
-            st.write("- Coluna 'CANAL' não existe nos dados")
-            st.write("- Coluna 'RESULTADO' não existe nos dados") 
-            st.write("- Dados vazios ou com formato incorreto")
-            
-            # Mostrar informações de debug
-            if 'CANAL' in df.columns:
-                st.write("✅ Coluna CANAL encontrada")
-                st.write(f"**Valores únicos em CANAL:** {df['CANAL'].unique()}")
-            else:
-                st.write("❌ Coluna CANAL não encontrada")
-                
-            if 'RESULTADO' in df.columns:
-                st.write("✅ Coluna RESULTADO encontrada")
-                st.write(f"**Valores únicos em RESULTADO:** {df['RESULTADO'].unique()}")
-            else:
-                st.write("❌ Coluna RESULTADO não encontrada")
-        
-        # SEÇÃO 4: INSIGHTS AUTOMÁTICOS
+        # SEÇÃO 3: INSIGHTS AUTOMÁTICOS
         st.markdown('<h2 class="section-title">💡 Insights Automáticos</h2>', unsafe_allow_html=True)
         
         if not kpis['canal_performance'].empty:
