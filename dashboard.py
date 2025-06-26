@@ -414,7 +414,7 @@ def create_charts(kpis):
         )])
         
         fig_segments.update_layout(
-            title='🎯 Lead que não responderam',
+            title='🎯 Lead's que não responderam',
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font_family="Inter, -apple-system, BlinkMacSystemFont, sans-serif",
@@ -446,7 +446,7 @@ def create_charts(kpis):
 # INTERFACE PRINCIPAL
 def main():
     # TÍTULO PRINCIPAL
-    st.markdown('<h1 class="main-title">📊 Dashboard de Análise de Leads</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">📊 Dashboard Comercial Rankrup</h1>', unsafe_allow_html=True)
     
     try:
         # Carrega os dados automaticamente
